@@ -1,17 +1,19 @@
 # Advanced Oracle PL/SQL Portfolio: High-Performance Database Engineering
 
 ## 📌 Project Overview
-This repository contains a curated collection of production-grade **Oracle PL/SQL** components designed for enterprise environments. The core focus of these scripts is to demonstrate advanced backend capabilities including **bulk data processing (ETL)**, **defensive security programming**, **automated database auditing**, and **memory-optimized caching strategies**.
+This repository contains a curated collection of production-grade **Oracle PL/SQL** components designed for enterprise environments. The core focus of these scripts is to demonstrate advanced backend capabilities including **bulk data processing (ETL)**, **defensive security programming**, **automated database auditing**, **stateless cursor streaming**, and **memory-optimized caching strategies**.
 
 All components were successfully compiled and tested on an Oracle Cloud Autonomous Database environment utilizing a standard enterprise database schema footprint.
 
 ---
 
 ## 🛠️ Repository Architecture & Tech Stack
-*   **Database Engine:** Oracle Database 19c / 21c (Cloud Architecture)
+*   **Database Engine:** Oracle Database 19c / 21c / 23ai (Cloud Architecture / OCI)
 *   **Core Concepts Demonstrated:** 
     *   Bulk Data Processing (`BULK COLLECT`, `LIMIT`, `FORALL`)
     *   Dynamic SQL & Application Security (`EXECUTE IMMEDIATE`, `DBMS_ASSERT`)
+    *   Autonomous Sub-Transactions (`PRAGMA AUTONOMOUS_TRANSACTION`)
+    *   Stateless Dataset Streaming (`SYS_REFCURSOR`)
     *   Automated Database Auditing & Constraints (`BEFORE/AFTER Row Triggers`)
     *   Performance Tuning & Memory Caching (`RESULT_CACHE`, Custom Records)
 
@@ -24,17 +26,24 @@ All components were successfully compiled and tested on an Oracle Cloud Autonomo
 *   **Objective:** Enterprise-scale batch price adjustment with non-breaking in-memory data validation.
 *   **Key Architectural Patterns:**
     *   **Context-Switch Optimization:** Implements a state-of-the-art cursor fetching architecture utilizing `BULK COLLECT` alongside an explicit row `LIMIT` to enforce predictable PGA memory consumption regardless of the dataset volume.
-    *   **Mass Vector DML:** Utilizes the high-speed `FORALL` driver to pipe the sanitized collections back to the disk in a single round-trip.
-    *   **Autonomous Anomaly Capture:** Validates bounds in RAM. If a negative outcome is detected, it falls back gracefully to a capped zero value and pipes the transaction anomaly to a separate log (`etl_error_log`).
+    *   **Mass Vector DML:** Utilizes the high-speed `FORALL` driver to pipe the sanitized collections back to the disk in a single database round-trip.
+    *   **In-Memory Row Iteration:** Modifies structural scalar fields directly within custom RECORD collections before vector binding occurs.
 
-### 2. Security & Data Integrity Shield (`Triggers Pack`)
+### 2. Enterprise Integration API & Logger (`PKG_INTEGRATION_API`)
+*   **File:** `pkg_integration_api.sql`
+*   **Objective:** Secure decoupled integration layer providing external applications with fast data streaming and non-blocking transactional logging.
+*   **Key Architectural Patterns:**
+    *   **Autonomous Log Isolation:** Leverages `PRAGMA AUTONOMOUS_TRANSACTION` inside the auditing layer. Activity and error traces are permanently written to `etl_error_log` instantly, completely uncoupled from the parent transaction's success, failure, or global `ROLLBACK` states.
+    *   **Stateless Cursor Pointer Streaming:** Employs `SYS_REFCURSOR` out-parameters to safely stream extensive rows to calling programs (such as Java/Python application endpoints) without consuming local server memory pools. The client tier maintains fetch controls and memory deallocation responsibilities.
+
+### 3. Security & Data Integrity Shield (`Triggers Pack`)
 *   **File:** `security_and_audit_triggers.sql`
 *   **Objective:** Shifting core governance and audit capabilities straight into the data layer, agnostic of application state.
 *   **Key Architectural Patterns:**
     *   **Targeted Column-Audit (`trg_customer_credit_audit`):** Employs explicit column tracking (`AFTER UPDATE OF cust_credit_limit`) to trap modification footprints only when critical telemetry shifts. Maps `:OLD` and `:NEW` states into `customer_credit_audit` including operational contexts via the `USER` global function.
     *   **Transactional Blockades (`trg_prevent_customer_deletion`):** Enforces static compliance bounds. Intercepts structural database removals (`BEFORE DELETE`) and terminates the call stack gracefully utilizing custom application errors (`RAISE_APPLICATION_ERROR`), inducing an instant transactional rollback.
 
-### 3. Dynamic Utilities & Memory Cache (`PKG_CUSTOMER_UTILITIES`)
+### 4. Dynamic Utilities & Memory Cache (`PKG_CUSTOMER_UTILITIES`)
 *   **File:** `pkg_customer_utilities.sql`
 *   **Objective:** Adaptable dynamic reporting combined with low-latency memory lookup management.
 *   **Key Architectural Patterns:**
@@ -46,23 +55,48 @@ All components were successfully compiled and tested on an Oracle Cloud Autonomo
 
 ## 📈 Code Sample Highlights
 
-### Example: Memory-Safe Batch Data Processing
+### Example: Memory-Safe Batch Data Processing (`LIMIT` + `FORALL`)
 ```sql
--- Loading batches of data into collection to safely manage RAM resources
-FETCH c_products BULK COLLECT INTO v_prices LIMIT p_batch_size;
-EXIT WHEN v_prices.COUNT = 0;
+LOOP
+    -- Loading batches of data into collection to safely manage RAM resources
+    FETCH c_products BULK COLLECT INTO v_products LIMIT 5;
+    
+    -- Deterministic exits based on collection footprint (safe from kursor state mutation)
+    EXIT WHEN v_products.COUNT = 0;
 
--- High-performance mass update reducing context switching
-FORALL i IN 1..v_prices.COUNT
-    UPDATE mirek.products
-    SET prod_list_price = v_prices(i).prod_list_price
-    WHERE prod_id = v_prices(i).prod_id;
+    -- Local RAM records parsing modification
+    FOR i IN 1..v_products.COUNT LOOP
+        v_products(i).prod_list_price := v_products(i).prod_list_price - 10;
+    END LOOP;
+
+    -- High-performance mass update reducing context switching
+    FORALL i IN 1..v_products.COUNT
+        UPDATE mirek.products
+        SET prod_list_price = v_products(i).prod_list_price
+        WHERE prod_id = v_products(i).prod_id;
+END LOOP;
+```
+
+### Example: Non-Blocking Autonomous Anomaly Capturing
+```sql
+PROCEDURE log_api_activity(p_action_name IN VARCHAR2, p_status_msg IN VARCHAR2) AS
+    -- Run this procedure in its own isolated transaction boundary
+    PRAGMA AUTONOMOUS_TRANSACTION;
+BEGIN
+    INSERT INTO mirek.etl_error_log (prod_id, error_message, log_date)
+    VALUES (NULL, p_action_name || ' - ' || p_status_msg, SYSDATE);
+    
+    -- Commits the log row instantly, even if the parent execution aborts or rolls back
+    COMMIT; 
+END log_api_activity;
 ```
 
 ### Example: Injection-Hardened Dynamic Evaluation
 ```sql
 -- Assess if the provided table name is structurally safe before evaluation
 v_safe_table_name := DBMS_ASSERT.SIMPLE_SQL_NAME(p_table_name);
+
+-- Skim database with completely sanitized parameters
 v_sql := 'SELECT COUNT(*) FROM mirek.' || v_safe_table_name;
 EXECUTE IMMEDIATE v_sql INTO p_record_count;
 ```
@@ -70,7 +104,7 @@ EXECUTE IMMEDIATE v_sql INTO p_record_count;
 ---
 
 ## 🎯 Best Practices Implemented
-*   **Strict Scope Separation:** Architectural distinction between Package Specifications (Public APIs) and Package Bodies (Private Implementations).
+*   **Strict Scope Separation:** Architectural distinction between Package Specifications (Public APIs) and Package Bodies (Private Implementations) enabling online logic modification without invalidating downstream dependencies.
 *   **Purity Rules Compliance:** Analytical reporting functions are kept deterministic and pure, preventing illegal mutations during simple database reads (`SELECT`).
-*   **Robust Boundary Protection:** Every standalone transaction boundary explicitly isolates structural errors through `WHEN OTHERS THEN ROLLBACK` logic patterns, ensuring database states are never left corrupt or dangling.
+*   **Deterministic Out-Invariants:** Enforces clear parameter initialization. Captures out-parameters dynamically in local application scopes, ensuring safe exception cascades without dangling memory states.
 *   **Clean Structural Typing:** Extensive leverage of anchored column typing (`%TYPE`) to build loose-coupling data layers that don't shatter during production metadata updates.
