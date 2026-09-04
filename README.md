@@ -51,6 +51,14 @@ All components were successfully compiled and tested on an Oracle Cloud Autonomo
     *   **Defensive Dynamic SQL:** The `count_table_records` procedure abstracts cross-table matrix scans via dynamic strings (`EXECUTE IMMEDIATE`).
     *   **SQL Injection Hardening:** Leverages `DBMS_ASSERT.SIMPLE_SQL_NAME` to parse incoming arguments *before* the evaluator line fires, completely locking out execution threats and parameter-probing anomalies.
 
+### 5. Query Performance Tuning Case Study (`05_performance_tuning_case_study.sql`)
+*   **File:** `05_performance_tuning_case_study.sql`
+*   **Objective:** Eliminating high-cost scanning operations through query execution plan analysis and index engineering.
+*   **Key Architectural Patterns:**
+    *   **Execution Plan Analytics:** Leverages `EXPLAIN PLAN FOR` and `DBMS_XPLAN.DISPLAY` to dissect Cost-Based Optimizer (CBO) decisions.
+    *   **Function Modifier Traps:** Demonstrates how common functional filters (e.g., `UPPER()`) invalidate standard B-Tree lookups, leading to expensive `INDEX FAST FULL SCANS`.
+    *   **Advanced Index Engineering:** Solves data mutations in query predicates by deploying an advanced **Function-Based Index (FBI)**, restoring optimal `INDEX RANGE SCAN` behavior and delivering a ~94% reduction in computational cost.
+
 ---
 
 ## 📈 Code Sample Highlights
