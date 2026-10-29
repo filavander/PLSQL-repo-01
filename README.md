@@ -15,8 +15,9 @@ This repository contains production-grade **Oracle PL/SQL** components focusing 
 5. **Query Performance Tuning Case Study (`05_performance_tuning_case_study.sql`):** Execution plan analysis and Function-Based Index optimization.
 6. **High-Performance Data Streaming Pipelines (`06_object_streaming_pipeline.sql`):** Non-blocking transformations using `PIPELINED` and `PIPE ROW()`.
 7. **Object-Oriented PL/SQL Architecture (`07_object_types.sql`):** Object-Relational Mapping (ORM) encapsulation with `t_customer_risk_obj`.
+8. **Enterprise Sales Consolidator Engine (`08_pkg_sales_consolidator.sql`):** A multi-level, high-volume consolidation pipeline combining dynamic SQL ref cursor streaming, chunked memory batching (`LIMIT 1000`), robust non-blocking array updates (`FORALL SAVE EXCEPTIONS`), and an isolated private asynchronous tracking layer via `PRAGMA AUTONOMOUS_TRANSACTION`.
 
-*(You can find the full code snippets and structural examples in your repository files `01` through `07`.)*
+*(You can find the full code snippets and structural examples in your repository files `01` through `08`.)*
 
 ## 🎯 Best Practices Implemented
 *   Strict scope separation between specifications and bodies.
